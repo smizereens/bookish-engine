@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  db:
+    image: postgres:13.0-alpine
+    volumes:
+      # Persist database data using a named volume
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      # Load database credentials and settings from .env file
+      - ./.env
+
+  # Backend Django/Gunicorn Service
+  backend:
+    build:
+      # Build the image using the Dockerfile in the ../backend directory
+      context: ../backend
+      dockerfile: Dockerfile
+    volumes:
+      # Mount volume for static files collected by Django
+      - static_value:/app/static/
+      # Mount volume for user-uploaded media files
+      - media_value:/app/media/
+    depends_on:
+      # Ensure the database service is started before the backend
+      - db
+    env_file:
+      # Load Django settings (SECRET_KEY, DEBUG, ALLOWED_HOSTS, DB connection details) from .env file
+      - ./.env
+
+  # Frontend React Service (primarily for building static files)
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile # Assumes a Dockerfile exists in ../frontend
+    volumes:
+      # Mount volume to store the built frontend artifacts
+      - frontend_build:/app/build
+    # No depends_on needed here as nginx will wait for the volume content
+
+  # Nginx Web Server/Proxy Service
+  nginx:
+    image: nginx:1.21.3-alpine
+    ports:
+      # Map host port 80 to container port 80 to expose the application
+      - "80:80"
+    volumes:
+      # Mount the custom nginx configuration file
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      # Mount the volume containing the built frontend files to serve them
+      - frontend_build:/usr/share/nginx/html/
+      # Mount the volume containing collected Django static files
+      - static_value:/var/html/static/
+      # Mount the volume containing user-uploaded media files
+      - media_value:/var/html/media/
+    depends_on:
+      # Ensure backend is running before nginx starts proxying to it
+      # Frontend build volume dependency is implicit via volume usage
+      - backend
+
+# Define named volumes for data persistence and sharing
+volumes:
+  postgres_data: # For PostgreSQL data
+  static_value:  # For Django static files
+  media_value:   # For Django media files
+  frontend_build: # For React build artifacts
